@@ -1,0 +1,299 @@
+# Clear the environment at the start of a session
+cat("\014") # Clears Console
+rm(list = ls()) # Clears Global Environment
+try(dev.off(dev.list()["RStudioGD"]), silent = TRUE) # Clears Plots
+try(p_unload(p_loaded(), character.only = TRUE), silent = TRUE) # Clears Packages
+options(scipen = 100) # Disables scientific notation for entire R Session
+
+#Name : Harsha Katreddy
+#Course : ALY 6010
+#Final project - Milestone 1
+
+# Load necessary libraries
+library(pacman)
+p_load(tidyverse, flextable, gtsummary, survival, psych, janitor, officer)
+
+master_df <- read_csv("NLSY1979_1994.csv")
+
+names(master_df)
+
+glimpse(master_df)
+
+summary(master_df)
+
+
+#Cleaning the dataset
+
+master_df[master_df < 0] <- NA
+names(master_df)
+
+#Removing Columns with more missing values for analysis
+
+clean_df <- select(master_df, -c(EVER_EDU_LOAN,MAJOR_1_,MAJOR_2_,EDU_MAJOR,AMT_EDU_LOAN_,TOTAL_EDU_LOAN,EDU_LOAN_))
+clean_df <- select(clean_df, -c(1))
+
+#Removing Rows with NAs
+clean_df <- drop_na(clean_df)
+
+#Calculating age of the respondent
+clean_df$YEAR_OF_BIRTH <- as.numeric(clean_df$YEAR_OF_BIRTH) + 1900
+
+clean_df <- mutate(clean_df, Age = YR - YEAR_OF_BIRTH)
+
+#Renaming columns
+clean_df <- clean_df %>% rename(year = YR, year_of_birth = YEAR_OF_BIRTH, birth_country = COUNTRY_OF_BIRTH,
+                                              race = RACE, gender = GENDER, child1_birth_year = C1DOB_Y, healthplan = HAVING_HEALTHPLAN,
+                                              family_size = FAMSIZE_, family_income = TNFI_, pov_status = POVSTATUS_,
+                                              region = REGION_, martial_status = MARSTAT_KEY_, unemployed_weeks = WKSUEMP_PCY_,
+                                              urban_rural = URBAN_RURAL_, number_of_jobs = JOBSNUM_, number_of_children = NUMCH_,
+                                              age_child1 = AGE_1STCHILD, ever_in_pov = EVER_IN_POVERTY, pov_type = WHEN_IN_POVERTY,
+                                              income = INCOME_, max_income = INCOME_MAX, degree = EDU_DEGREE, ever_divorced = EVER_DIVORCED_,
+                                              ever_unemp = EVER_UNEMPLOYED_, workhours_per_week = HOURS_WORKED_PER_WEEK_, cal_year_jobs = CAL_YEAR_JOBS_,
+                                              networth = NET_WORTH_, emp_status = EMP_STATUS_)
+
+clean_df <- clean_names(clean_df)
+
+clean_df$region <- gsub(".*: ", "", clean_df$region)
+
+clean_df$race[clean_df$race == "NON-BLACK, NON-HISPANIC"] <- "WHITE"
+
+
+glimpse(clean_df)
+summary(clean_df)
+
+
+#Creating Indicator Variables
+
+clean_df <- mutate(clean_df, pov_ind = ifelse(clean_df$pov_status == "1: IN POVERTY",1,0),
+                   ever_in_pov_ind = ifelse(clean_df$ever_in_pov == "Yes",1,0),
+                   employed_ind = ifelse(clean_df$emp_status == "1: EMPLOYED",1,0),
+                   healthplan_ind = ifelse(clean_df$healthplan == "Yes",1,0),
+                   ever_unemp_ind = ifelse(clean_df$ever_unemp == "Yes",1,0),
+                   ever_div_ind = ifelse(clean_df$ever_divorced == "Yes",1,0),
+                   urban_ind = ifelse(clean_df$urban_rural == "1: URBAN",1,0))
+view(clean_df)
+
+#Data Analysis - Generating Descriptive Statistics
+
+race_data_df <- clean_df %>% group_by(race) %>% summarise(type_of_category = "Race",total_count = n(),
+                percentage_employed = (mean(employed_ind)*100), percentage_ever_unemp = (mean(ever_unemp_ind))*100,
+                percentage_in_pov = (mean(pov_ind)*100), percentage_ever_in_pov = (mean(ever_in_pov_ind)*100),
+                percentage_in_healthplan = (mean(healthplan_ind)*100))
+               
+
+race_data_df <- rename(race_data_df, category = race)              
+
+region_data_df <- clean_df %>% group_by(region) %>% summarise(type_of_category = "Region",total_count = n(), 
+                 percentage_employed = (mean(employed_ind)*100), percentage_ever_unemp = (mean(ever_unemp_ind))*100,
+                 percentage_in_pov = (mean(pov_ind)*100), percentage_ever_in_pov = (mean(ever_in_pov_ind)*100),
+                 percentage_in_healthplan = (mean(healthplan_ind)*100))
+                 
+
+region_data_df <- rename(region_data_df, category = region)
+
+
+gender_data_df <- clean_df %>% group_by(gender) %>% summarise(type_of_category = "Gender",total_count = n(),
+                  percentage_employed = (mean(employed_ind)*100), percentage_ever_unemp = (mean(ever_unemp_ind))*100,
+                  percentage_in_pov = (mean(pov_ind)*100), percentage_ever_in_pov = (mean(ever_in_pov_ind)*100),
+                  percentage_in_healthplan = (mean(healthplan_ind)*100))
+                 
+
+gender_data_df <- rename(gender_data_df, category = gender)   
+
+
+summary_table <- bind_rows(race_data_df,region_data_df,gender_data_df)
+
+summary_table <- summary_table[,c(2,1,3:8)]
+
+summary_table <- flextable(summary_table) %>% set_caption("Summary Statistics - Across various Categories") %>%
+  set_header_labels(type_of_category = "Type of Category",category = "Category Name", total_count = "Total Count",
+  percentage_employed = "Employed(%)", percentage_ever_unemp = "Ever Unemployed(%)",
+  percentage_in_pov = "In Poverty(%)",percentage_ever_in_pov = "Ever in Poverty(%)",percentage_in_healthplan = "In Healthplan(%)",
+  percentage_in_urban = "In Urban(%)") %>%
+  colformat_double(digits = 2) %>%
+  set_table_properties(layout = "autofit") %>%
+  autofit()
+
+# Create a Word document
+summary_doc <- read_docx()
+
+# Add the flextable to the document
+summary_doc <- summary_doc %>% 
+  body_add_flextable(summary_table)
+
+# Save the Word document
+print(summary_doc, target = "Summary_Table.docx")
+
+#Descriptive Statistics based on degree type
+
+degree_data_df <- clean_df %>% group_by(degree) %>% summarise(total_count = n(), avg_income = mean(income),
+                  avg_networth = mean(networth),percentage_employed = (mean(employed_ind)*100), percentage_ever_unemp = (mean(ever_unemp_ind))*100,
+                  percentage_in_pov = (mean(pov_ind)*100), percentage_ever_in_pov = (mean(ever_in_pov_ind)*100))
+
+degree_data_table <- flextable(degree_data_df)%>% set_caption("Summary Statistics - Across various Degrees") %>%
+  set_header_labels(degree = "Degree",total_count = "Total Count", avg_income = "Avg Income($)",avg_networth = "Avg Networth($)",
+  percentage_employed = "Employed(%)", percentage_ever_unemp = "Ever Unemployed(%)",
+  percentage_in_pov = "In Poverty(%)",percentage_ever_in_pov = "Ever in Poverty(%)") %>%
+  colformat_double(digits = 2) %>%
+  set_table_properties(layout = "autofit") %>%
+  autofit()
+
+degree_data_table
+
+summary_doc <- read_docx()
+
+summary_doc <- summary_doc %>% body_add_flextable(degree_data_table)
+
+print(summary_doc, target = "Summary_Degree_Table.docx")
+
+
+#Summary Table of continous variables using psych - By Region
+
+summary_table_region <- psych::describeBy(clean_df[,c("income","family_income","networth","family_size")], group = clean_df$region)
+
+summary_region_df <- do.call(rbind, summary_table_region)
+
+summary_region_df <- round(summary_region_df, digits = 4)
+
+summary_region_df
+
+summary_region_table <- flextable(summary_region_df)%>% set_caption("Summary Statistics - Across Regions") %>%
+  set_table_properties(layout = "autofit") %>%
+  autofit()
+
+summary_region_table
+
+summary_doc <- read_docx()
+
+summary_doc <- summary_doc %>% body_add_flextable(summary_region_table)
+
+print(summary_doc, target = "Summary_Region_Table.docx")
+
+#Summary Statistics using psych - By Race
+
+summary_table_race <- psych::describeBy(clean_df[,c("income","family_income","networth","family_size")], group = clean_df$race)
+
+summary_race_df <- do.call(rbind, summary_table_race)
+
+summary_race_df <- round(summary_race_df, digits = 2)
+summary_race_df
+
+summary_race_table <- flextable(summary_race_df)%>% set_caption("Summary Statistics - Across Races") %>%
+  set_table_properties(layout = "autofit") %>%
+  autofit()
+
+summary_race_table
+
+summary_doc <- read_docx()
+
+summary_doc <- summary_doc %>% body_add_flextable(summary_race_table)
+
+print(summary_doc, target = "Summary_Race_Table.docx")
+
+
+#Summary Statistics using psych - By Gender
+summary_table_gender <- psych::describeBy(clean_df[,c("income","family_income","networth","family_size")], group = clean_df$gender)
+
+summary_gender_df <- do.call(rbind, summary_table_gender)
+
+summary_gender_df <- round(summary_gender_df, digits = 2)
+summary_gender_df
+
+summary_gender_table <- flextable(summary_gender_df)%>% set_caption("Summary Statistics - Across Genders") %>%
+  set_table_properties(layout = "autofit") %>%
+  autofit()
+
+summary_gender_table
+
+summary_doc <- read_docx()
+
+summary_doc <- summary_doc %>% body_add_flextable(summary_gender_table)
+
+print(summary_doc, target = "Summary_Gender_Table.docx")
+
+
+#Data Visualizations
+
+#1
+
+degree_data_df
+degree_wise_chart <- ggplot(clean_df, aes(x = degree, fill = degree)) +
+  geom_bar(stat = "count") + 
+  coord_flip()+
+  labs(x = "Degree", y = "Average Income") +
+  theme_classic()+
+  theme(axis.text.x = element_text(size = 10),
+        axis.text.y = element_text(size = 10,angle = 45, hjust = 1),
+        axis.title.x = element_text(size = 14),
+        axis.title.y = element_text(size = 14))
+
+degree_wise_chart
+
+#2
+
+glimpse(clean_df)
+
+region_wise_chart <- ggplot(clean_df, aes(x = region, fill = ever_in_pov)) +
+  geom_bar(stat = "count", position = "dodge", width = 0.7) + 
+  labs(x = "Region", y = "Count", fill = "Ever in Poverty") +
+  theme_bw()+
+  theme(axis.text.x = element_text(size = 10, angle = 45, hjust = 1),
+        axis.text.y = element_text(size = 12),
+        axis.title.x = element_text(size = 14),
+        axis.title.y = element_text(size = 14))
+
+region_wise_chart
+
+#3
+
+healthplan_chart <- ggplot(clean_df, aes(x = emp_status, fill = healthplan)) +
+  geom_bar(stat = "count", position = "fill", width = 0.7) + 
+  labs(x = "Employment Status", y = "Proportion", fill = "Enrolled in Health Plan") +
+  theme_bw()+
+  theme(axis.text.x = element_text(size = 10, angle = 45, hjust = 1),
+        axis.text.y = element_text(size = 12),
+        axis.title.x = element_text(size = 14),
+        axis.title.y = element_text(size = 14))
+
+healthplan_chart
+
+#4
+
+race_chart <- ggplot(clean_df, aes(x = race, fill = pov_status))+
+  geom_bar(stat ="count", position = "fill", width = 0.7) + 
+  labs(x = "Race", y = "Proportion", fill = "Poverty Status") +
+  theme_classic()+
+  theme(axis.text.x = element_text(size = 10, angle = 45, hjust = 1),
+        axis.text.y = element_text(size = 12),
+        axis.title.x = element_text(size = 14),
+        axis.title.y = element_text(size = 14))
+
+race_chart
+
+
+#Visualization to show effect of education level on income level
+
+#Categorization for better analysis
+
+clean_df <- clean_df %>% mutate(degree_category = case_when(
+    degree %in% c("Bachelor of Science (BS)", "Associate/Junior College (AA)", 
+                  "Bachelor of Arts Degree (BA)") ~ "Undergraduate",
+    degree %in% c("Master's Degree (MA, MBA, MS, MSW)", "Doctoral Degree (PhD)", 
+                  "Professional Degree (MD, LLD, DDS)") ~ "Graduate",
+    degree %in% c("High school diploma (or equivalent)","None", "Other (SPECIFY)") ~ "Other",
+    TRUE ~ NA_character_  # For any cases not covered above
+  ))
+
+education_level_chart <- ggplot(clean_df, aes(x = income, fill = degree_category)) +
+  geom_density(alpha = 0.1, adjust = 1.5) + 
+  labs(x = "Income", y = "Density", fill = "Education Level") +
+  theme_classic()+
+  scale_fill_manual(values = c("Graduate" = "blue", "Undergraduate" = "green", "Other" = "red"))
+  theme(axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size = 12),
+        axis.title.x = element_text(size = 14),
+        axis.title.y = element_text(size = 14))
+
+education_level_chart
+
+
